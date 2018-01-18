@@ -86,40 +86,59 @@ headerFileType h =
 
 parseHeader :: FileOffset -> ByteString -> Either TarException Header
 parseHeader offset bs = assert (S.length bs == 512) $ do
-    let checksumBytes = S.take 8 $ S.drop 148 bs
-        expectedChecksum = parseOctal checksumBytes
-        actualChecksum = bsum bs - bsum checksumBytes + 8 * space
+    let expectedChecksum = octal checksumBytes
+        actualChecksum   = bsum bs - bsum checksumBytes + 8 * space
     unless (actualChecksum == expectedChecksum) (Left (BadChecksum offset))
     return Header
         { headerOffset         = offset
         , headerPayloadOffset  = offset + 512
-        , headerFileNameSuffix = getShort 0 100
-        , headerFileMode       = getOctal 100 8
-        , headerOwnerId        = getOctal 108 8
-        , headerGroupId        = getOctal 116 8
-        , headerPayloadSize    = getOctal 124 12
-        , headerTime           = CTime $ getOctal 136 12
-        , headerLinkIndicator  = BU.unsafeIndex bs 156
-        , headerLinkName       = getShort 157 100
-        , headerMagicVersion   = toShort $ S.take 8 $ S.drop 257 bs
-        , headerOwnerName      = getShort 265 32
-        , headerGroupName      = getShort 297 32
-        , headerDeviceMajor    = getOctal 329 8
-        , headerDeviceMinor    = getOctal 337 8
-        , headerFileNamePrefix = getShort 345 155
+        , headerFileNameSuffix = short headerFileNameSuffix'
+        , headerFileMode       = octal headerFileMode'
+        , headerOwnerId        = octal headerOwnerId'
+        , headerGroupId        = octal headerGroupId'
+        , headerPayloadSize    = octal headerPayloadSize'
+        , headerTime           = CTime $ octal headerTime'
+        , headerLinkIndicator  = BU.unsafeHead headerLinkIndicator'
+        , headerLinkName       = short headerLinkName'
+        , headerMagicVersion   = short headerMagicVersion'
+        , headerOwnerName      = short headerOwnerName'
+        , headerGroupName      = short headerGroupName'
+        , headerDeviceMajor    = octal headerDeviceMajor'
+        , headerDeviceMinor    = octal headerDeviceMinor'
+        , headerFileNamePrefix = short headerFileNamePrefix'
         }
   where
     bsum :: ByteString -> Int
     bsum = S.foldl' (\c n -> c + fromIntegral n) 0
 
-    getShort off len = toShort $ S.takeWhile (/= 0) $ S.take len $ S.drop off bs
+    bs1 = bs                                           -- 0 <- restN ends at this offset
+    (headerFileNameSuffix', bs2)  = S.splitAt 100 bs1  -- 100
+    (headerFileMode',       bs3)  = S.splitAt 8   bs2  -- 108
+    (headerOwnerId',        bs4)  = S.splitAt 8   bs3  -- 116
+    (headerGroupId',        bs5)  = S.splitAt 8   bs4  -- 124
+    (headerPayloadSize',    bs6)  = S.splitAt 12  bs5  -- 136
+    (headerTime',           bs7)  = S.splitAt 12  bs6  -- 148
 
-    getOctal off len = parseOctal $ S.take len $ S.drop off bs
+    (checksumBytes,         bs8)  = S.splitAt 8   bs7  -- 156
 
-    parseOctal :: Integral i => ByteString -> i
-    parseOctal = S.foldl' (\t c -> t * 8 + fromIntegral (c - zero)) 0
-               . S.takeWhile (\c -> zero <= c && c <= seven)
-               . S.dropWhile (== space)
+    (headerLinkIndicator',  bs9)  = S.splitAt 1   bs8  -- 157
+
+    (headerLinkName',       bs10) = S.splitAt 100 bs9  -- 257
+    (headerMagicVersion',   bs11) = S.splitAt 8   bs10 -- 265
+
+    (headerOwnerName',      bs12) = S.splitAt 32  bs11 -- 297
+    (headerGroupName',      bs13) = S.splitAt 32  bs12 -- 329
+    (headerDeviceMajor',    bs14) = S.splitAt 8   bs13 -- 337
+    (headerDeviceMinor',    bs15) = S.splitAt 8   bs14 -- 345
+    headerFileNamePrefix'         = S.take    155 bs15 -- 500
+
+    short :: ByteString -> ShortByteString
+    short = toShort . S.takeWhile (/= 0)
+
+    octal :: Integral i => ByteString -> i
+    octal = S.foldl' (\t c -> t * 8 + fromIntegral (c - zero)) 0
+          . S.takeWhile (\c -> zero <= c && c <= seven)
+          . S.dropWhile (== space)
 
     space :: Integral i => i
     space = 0x20
