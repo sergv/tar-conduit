@@ -10,6 +10,7 @@ module Data.Conduit.Tar
       tar
     , tarEntries
     , untar
+    , untarChunks
     , untarWithFinalizers
     , restoreFile
     , restoreFileInto
